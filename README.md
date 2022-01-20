@@ -47,6 +47,12 @@ Run ```/record/analyze_training_1shot.ipynb``` and ```/record/analyze_training_5
 ## Results
 The test results will be recorded in `./record/results.txt`
 
+## Visual comparison of softmax-based and distance-ratio-based (DR) formulation
+The following images visualize confidence scores of red class when the three points are the representing points of red, green, and blue classes.
+ | Softmax-based formulation | DR formulation |
+ | :---:       |     :---:      |
+ | <img src="https://github.com/hjk92g/DR_Formulation_ML/blob/master/plots/prob_red_softmax_sq.png" width="360" height="300" /> | <img src="https://github.com/hjk92g/DR_Formulation_ML/blob/master/plots/prob_red_DR_p_2.png" width="360" height="300" /> | 
+
 ## References and licence
 Our repository (a set of codes) is forked from an original repository (https://github.com/wyharveychen/CloserLookFewShot) and codes are under the same licence (```LICENSE.txt```) as the original repository except for the following.
 
