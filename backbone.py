@@ -23,14 +23,14 @@ class distLinear(nn.Module):
     def __init__(self, indim, outdim):
         super(distLinear, self).__init__()
         self.L = nn.Linear( indim, outdim, bias = False)
-        self.class_wise_learnable_norm = True  #See the issue#4&8 in the github 
+        self.class_wise_learnable_norm = True  
         if self.class_wise_learnable_norm:      
             WeightNorm.apply(self.L, 'weight', dim=0) #split the weight update component to direction and norm      
 
         if outdim <=200:
-            self.scale_factor = 2; #a fixed scale factor to scale the output of cos value into a reasonably large input for softmax, for to reproduce the result of CUB with ResNet10, use 4. see the issue#31 in the github 
+            self.scale_factor = 2; #a fixed scale factor to scale the output of cos value into a reasonably large input for softmax, for to reproduce the result of CUB with ResNet10, use 4.  
         else:
-            self.scale_factor = 10; #in omniglot, a larger scale factor is required to handle >1000 output classes.
+            self.scale_factor = 10; 
 
     def forward(self, x):
         x_norm = torch.norm(x, p=2, dim =1).unsqueeze(1).expand_as(x)
@@ -38,7 +38,7 @@ class distLinear(nn.Module):
         if not self.class_wise_learnable_norm:
             L_norm = torch.norm(self.L.weight.data, p=2, dim =1).unsqueeze(1).expand_as(self.L.weight.data)
             self.L.weight.data = self.L.weight.data.div(L_norm + 0.00001)
-        cos_dist = self.L(x_normalized) #matrix product by forward function, but when using WeightNorm, this also multiply the cosine distance by a class-wise learnable norm, see the issue#4&8 in the github
+        cos_dist = self.L(x_normalized) #matrix product by forward function, but when using WeightNorm, this also multiply the cosine distance by a class-wise learnable norm
         scores = self.scale_factor* (cos_dist) 
 
         return scores
@@ -185,68 +185,6 @@ class SimpleBlock(nn.Module):
         return out
 
 
-
-# Bottleneck block
-class BottleneckBlock(nn.Module):
-    maml = False #Default
-    def __init__(self, indim, outdim, half_res):
-        super(BottleneckBlock, self).__init__()
-        bottleneckdim = int(outdim/4)
-        self.indim = indim
-        self.outdim = outdim
-        if self.maml:
-            self.C1 = Conv2d_fw(indim, bottleneckdim, kernel_size=1,  bias=False)
-            self.BN1 = BatchNorm2d_fw(bottleneckdim)
-            self.C2 = Conv2d_fw(bottleneckdim, bottleneckdim, kernel_size=3, stride=2 if half_res else 1,padding=1)
-            self.BN2 = BatchNorm2d_fw(bottleneckdim)
-            self.C3 = Conv2d_fw(bottleneckdim, outdim, kernel_size=1, bias=False)
-            self.BN3 = BatchNorm2d_fw(outdim)
-        else:
-            self.C1 = nn.Conv2d(indim, bottleneckdim, kernel_size=1,  bias=False)
-            self.BN1 = nn.BatchNorm2d(bottleneckdim)
-            self.C2 = nn.Conv2d(bottleneckdim, bottleneckdim, kernel_size=3, stride=2 if half_res else 1,padding=1)
-            self.BN2 = nn.BatchNorm2d(bottleneckdim)
-            self.C3 = nn.Conv2d(bottleneckdim, outdim, kernel_size=1, bias=False)
-            self.BN3 = nn.BatchNorm2d(outdim)
-
-        self.relu = nn.ReLU()
-        self.parametrized_layers = [self.C1, self.BN1, self.C2, self.BN2, self.C3, self.BN3]
-        self.half_res = half_res
-
-
-        # if the input number of channels is not equal to the output, then need a 1x1 convolution
-        if indim!=outdim:
-            if self.maml:
-                self.shortcut = Conv2d_fw(indim, outdim, 1, stride=2 if half_res else 1, bias=False)
-            else:
-                self.shortcut = nn.Conv2d(indim, outdim, 1, stride=2 if half_res else 1, bias=False)
-
-            self.parametrized_layers.append(self.shortcut)
-            self.shortcut_type = '1x1'
-        else:
-            self.shortcut_type = 'identity'
-
-        for layer in self.parametrized_layers:
-            init_layer(layer)
-
-
-    def forward(self, x):
-
-        short_out = x if self.shortcut_type == 'identity' else self.shortcut(x)
-        out = self.C1(x)
-        out = self.BN1(out)
-        out = self.relu(out)
-        out = self.C2(out)
-        out = self.BN2(out)
-        out = self.relu(out)
-        out = self.C3(out)
-        out = self.BN3(out)
-        out = out + short_out
-
-        out = self.relu(out)
-        return out
-
-
 class ConvNet(nn.Module):
     def __init__(self, depth, flatten = True):
         super(ConvNet,self).__init__()
@@ -265,62 +203,6 @@ class ConvNet(nn.Module):
 
     def forward(self,x):
         out = self.trunk(x)
-        return out
-
-class ConvNetNopool(nn.Module): #Relation net use a 4 layer conv with pooling in only first two layers, else no pooling
-    def __init__(self, depth):
-        super(ConvNetNopool,self).__init__()
-        trunk = []
-        for i in range(depth):
-            indim = 3 if i == 0 else 64
-            outdim = 64
-            B = ConvBlock(indim, outdim, pool = ( i in [0,1] ), padding = 0 if i in[0,1] else 1  ) #only first two layer has pooling and no padding
-            trunk.append(B)
-
-        self.trunk = nn.Sequential(*trunk)
-        self.final_feat_dim = [64,19,19]
-
-    def forward(self,x):
-        out = self.trunk(x)
-        return out
-
-class ConvNetS(nn.Module): #For omniglot, only 1 input channel, output dim is 64
-    def __init__(self, depth, flatten = True):
-        super(ConvNetS,self).__init__()
-        trunk = []
-        for i in range(depth):
-            indim = 1 if i == 0 else 64
-            outdim = 64
-            B = ConvBlock(indim, outdim, pool = ( i <4 ) ) #only pooling for fist 4 layers
-            trunk.append(B)
-
-        if flatten:
-            trunk.append(Flatten())
-
-        self.trunk = nn.Sequential(*trunk)
-        self.final_feat_dim = 64
-
-    def forward(self,x):
-        out = x[:,0:1,:,:] #only use the first dimension
-        out = self.trunk(out)
-        return out
-
-class ConvNetSNopool(nn.Module): #Relation net use a 4 layer conv with pooling in only first two layers, else no pooling. For omniglot, only 1 input channel, output dim is [64,5,5]
-    def __init__(self, depth):
-        super(ConvNetSNopool,self).__init__()
-        trunk = []
-        for i in range(depth):
-            indim = 1 if i == 0 else 64
-            outdim = 64
-            B = ConvBlock(indim, outdim, pool = ( i in [0,1] ), padding = 0 if i in[0,1] else 1  ) #only first two layer has pooling and no padding
-            trunk.append(B)
-
-        self.trunk = nn.Sequential(*trunk)
-        self.final_feat_dim = [64,5,5]
-
-    def forward(self,x):
-        out = x[:,0:1,:,:] #only use the first dimension
-        out = self.trunk(out)
         return out
 
 class ResNet(nn.Module):
@@ -374,35 +256,9 @@ class ResNet(nn.Module):
 def Conv4():
     return ConvNet(4)
 
-def Conv6():
-    return ConvNet(6)
-
-def Conv4NP():
-    return ConvNetNopool(4)
-
-def Conv6NP():
-    return ConvNetNopool(6)
-
-def Conv4S():
-    return ConvNetS(4)
-
-def Conv4SNP():
-    return ConvNetSNopool(4)
-
-def ResNet10( flatten = True):
-    return ResNet(SimpleBlock, [1,1,1,1],[64,128,256,512], flatten)
-
 def ResNet18( flatten = True):
     return ResNet(SimpleBlock, [2,2,2,2],[64,128,256,512], flatten)
 
-def ResNet34( flatten = True):
-    return ResNet(SimpleBlock, [3,4,6,3],[64,128,256,512], flatten)
-
-def ResNet50( flatten = True):
-    return ResNet(BottleneckBlock, [3,4,6,3], [256,512,1024,2048], flatten)
-
-def ResNet101( flatten = True):
-    return ResNet(BottleneckBlock, [3,4,23,3],[256,512,1024,2048], flatten)
 
 
 
